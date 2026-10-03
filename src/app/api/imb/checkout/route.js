@@ -17,47 +17,71 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Invalid mobile number format' }, { status: 400 });
     }
 
-    // Example IMB Integration (Mock implementation based on standard payment gateways)
     const imbApiToken = process.env.IMB_API_TOKEN;
-    const imbApiUrl = process.env.IMB_API_URL || 'https://api.imbpay.in/v1/checkout';
+    // We enforce the new V2 URL given in the documentation
+    const imbApiUrl = process.env.IMB_API_URL || 'https://api.imbpay.in';
+    const createOrderUrl = `${imbApiUrl.replace(/\/$/, '')}/v2/create-order`;
 
     if (!imbApiToken) {
       console.error('IMB API credentials missing.');
       return NextResponse.json({ error: 'Server configuration error: Missing payment gateway credentials.' }, { status: 500 });
     }
 
-    // Real API call to IMB
-    const response = await fetch(imbApiUrl, {
+    const orderId = `ORD_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const redirectUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://ngo-flax.vercel.app/';
+
+    // Prepare x-www-form-urlencoded payload
+    const formData = new URLSearchParams();
+    formData.append('customer_mobile', donor.mobile);
+    formData.append('user_token', imbApiToken);
+    formData.append('amount', amount.toString());
+    formData.append('order_id', orderId);
+    formData.append('redirect_url', redirectUrl);
+    formData.append('remark1', donor.email);
+    formData.append('remark2', `Donation from ${donor.fullName}`);
+
+    // Real API call to IMB V2 Create Order
+    const response = await fetch(createOrderUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${imbApiToken}`
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({
-        amount: amount,
-        currency: 'INR',
-        orderId: `ORD_${Date.now()}`,
-        donorDetails: {
-          name: donor.fullName,
-          mobile: donor.mobile,
-          email: donor.email,
-          message: donor.message || ""
-        },
-        redirectUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/imb/callback`,
-        webhookUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/imb/webhook`,
-      })
+      body: formData.toString()
     });
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type');
+    const responseText = await response.text();
 
     if (!response.ok) {
-      throw new Error(data.message || 'IMB API error');
+      console.error(`IMB API Error (Status ${response.status}):`, responseText.substring(0, 500));
+      return NextResponse.json({ error: `Payment gateway error. Status: ${response.status}` }, { status: response.status });
+    }
+
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error('IMB API returned non-JSON response:', responseText.substring(0, 500));
+      return NextResponse.json({ error: 'Gateway returned an invalid format. Please try again later.' }, { status: 502 });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('IMB API JSON Parse Error:', parseError);
+      return NextResponse.json({ error: 'Gateway response parse error.' }, { status: 502 });
+    }
+
+    // Extract payment URL based on the described structure
+    const paymentUrl = (data.result && data.result.payment_url) || data.payment_url;
+
+    if (!paymentUrl) {
+      console.error('IMB API Missing payment_url in response:', data);
+      return NextResponse.json({ error: 'Gateway did not return a valid checkout URL.' }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      transactionId: data.transactionId,
-      checkoutUrl: data.checkoutUrl
+      orderId: orderId,
+      checkoutUrl: paymentUrl
     });
 
   } catch (error) {
