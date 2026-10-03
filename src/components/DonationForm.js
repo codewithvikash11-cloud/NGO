@@ -5,46 +5,72 @@ import { useState } from "react";
 export default function DonationForm() {
   const [selectedAmount, setSelectedAmount] = useState(500);
   const [customAmount, setCustomAmount] = useState("");
+  
+  // Donor Details
+  const [fullName, setFullName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null); // 'success', 'error', 'pending'
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const presetAmounts = [300, 500, 1000, 2500];
+  const presetAmounts = [500, 1000, 2000, 5000];
 
   const handleDonate = async (e) => {
     e.preventDefault();
     const amountToDonate = customAmount ? parseInt(customAmount, 10) : selectedAmount;
     
     if (!amountToDonate || amountToDonate <= 0) {
-      alert("Please select or enter a valid amount.");
+      setErrorMsg("Please select or enter a valid donation amount.");
+      return;
+    }
+
+    // Basic validation
+    if (!fullName.trim() || !mobile.trim() || !email.trim()) {
+      setErrorMsg("Please fill in all mandatory donor details.");
+      return;
+    }
+    
+    // Basic mobile validation (India)
+    if (!/^[6-9]\d{9}$/.test(mobile)) {
+      setErrorMsg("Please enter a valid 10-digit mobile number.");
       return;
     }
 
     setLoading(true);
     setStatus(null);
+    setErrorMsg("");
 
     try {
-      // Create checkout session via our API route which communicates with IMB
       const res = await fetch("/api/imb/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: amountToDonate }),
+        body: JSON.stringify({ 
+          amount: amountToDonate,
+          donor: {
+            fullName,
+            mobile,
+            email,
+            message
+          }
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to initiate payment");
 
-      // In a real integration, we'd redirect to IMB checkout URL:
-      // window.location.href = data.checkoutUrl;
-      
-      // For this demo, we simulate a successful redirect and callback
-      setTimeout(() => {
-        setLoading(false);
-        setStatus("success");
-      }, 1500);
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error("Checkout URL not returned from gateway.");
+      }
 
     } catch (err) {
       console.error(err);
       setStatus("error");
+      setErrorMsg(err.message || "Payment could not be processed. Please try again.");
       setLoading(false);
     }
   };
@@ -73,8 +99,9 @@ export default function DonationForm() {
           </button>
         </div>
       ) : (
-        <form onSubmit={handleDonate}>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <form onSubmit={handleDonate} className="space-y-4">
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {presetAmounts.map((amt) => (
               <button
                 key={amt}
@@ -94,7 +121,7 @@ export default function DonationForm() {
             ))}
           </div>
 
-          <div className="relative mb-6">
+          <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <span className="text-gray-500 font-bold">₹</span>
             </div>
@@ -107,24 +134,61 @@ export default function DonationForm() {
                 setCustomAmount(e.target.value);
                 setSelectedAmount(null);
               }}
-              className="w-full pl-10 pr-4 py-4 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors text-lg"
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors text-lg"
             />
           </div>
+
+          <div className="space-y-3 pt-4 border-t border-gray-100">
+            <p className="text-sm font-bold text-gray-700">Donor Details</p>
+            <input
+              type="text"
+              required
+              placeholder="Full Name *"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors"
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                type="tel"
+                required
+                placeholder="Mobile Number *"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors"
+              />
+              <input
+                type="email"
+                required
+                placeholder="Email Address *"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors"
+              />
+            </div>
+            <textarea
+              placeholder="Optional Message for the NGO"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows="2"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-ngo-primary focus:ring-1 focus:ring-ngo-primary transition-colors"
+            />
+          </div>
+
+          {errorMsg && (
+            <p className="text-red-500 text-sm font-medium text-center">{errorMsg}</p>
+          )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-ngo-primary hover:bg-ngo-dark text-white font-bold py-4 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center group relative overflow-hidden"
+            className="w-full mt-2 bg-ngo-primary hover:bg-ngo-dark text-white font-bold py-4 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center group relative overflow-hidden"
           >
-            <span className="relative z-10">{loading ? "Processing..." : "DONATE NOW"}</span>
+            <span className="relative z-10">{loading ? "Processing..." : "Proceed to Payment"}</span>
             {!loading && (
               <div className="absolute inset-0 h-full w-0 bg-white/20 transition-all duration-300 ease-out group-hover:w-full"></div>
             )}
           </button>
-          
-          {status === 'error' && (
-            <p className="text-red-500 text-sm mt-3 text-center">Payment could not be processed. Please try again.</p>
-          )}
         </form>
       )}
 

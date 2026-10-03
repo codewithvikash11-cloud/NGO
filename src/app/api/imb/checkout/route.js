@@ -3,29 +3,27 @@ import { NextResponse } from 'next/server';
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { amount } = body;
+    const { amount, donor } = body;
 
     if (!amount || amount <= 0) {
       return NextResponse.json({ error: 'Invalid donation amount' }, { status: 400 });
     }
 
+    if (!donor || !donor.fullName || !donor.mobile || !donor.email) {
+      return NextResponse.json({ error: 'Missing mandatory donor details' }, { status: 400 });
+    }
+
+    if (!/^[6-9]\d{9}$/.test(donor.mobile)) {
+      return NextResponse.json({ error: 'Invalid mobile number format' }, { status: 400 });
+    }
+
     // Example IMB Integration (Mock implementation based on standard payment gateways)
-    const imbMerchantId = process.env.IMB_MERCHANT_ID;
-    const imbApiKey = process.env.IMB_API_KEY;
+    const imbApiToken = process.env.IMB_API_TOKEN;
     const imbApiUrl = process.env.IMB_API_URL || 'https://api.imbpay.in/v1/checkout';
 
-    if (!imbMerchantId || !imbApiKey) {
-      console.warn('IMB API credentials missing. Using simulation mode.');
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      return NextResponse.json({
-        success: true,
-        transactionId: `TXN_${Date.now()}`,
-        checkoutUrl: `/checkout-simulation?amount=${amount}`,
-        message: 'Simulation checkout URL generated'
-      });
+    if (!imbApiToken) {
+      console.error('IMB API credentials missing.');
+      return NextResponse.json({ error: 'Server configuration error: Missing payment gateway credentials.' }, { status: 500 });
     }
 
     // Real API call to IMB
@@ -33,13 +31,18 @@ export async function POST(req) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${imbApiKey}`,
-        'X-Merchant-Id': imbMerchantId
+        'Authorization': `Bearer ${imbApiToken}`
       },
       body: JSON.stringify({
         amount: amount,
         currency: 'INR',
         orderId: `ORD_${Date.now()}`,
+        donorDetails: {
+          name: donor.fullName,
+          mobile: donor.mobile,
+          email: donor.email,
+          message: donor.message || ""
+        },
         redirectUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/imb/callback`,
         webhookUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/imb/webhook`,
       })
